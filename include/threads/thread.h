@@ -96,6 +96,7 @@ struct thread {
 	uint64_t *pml4;                     /* Page map level 4 */
 #endif
 
+	int64_t sleep_ticks;    			/*added line*/
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
@@ -117,6 +118,11 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
+
+/*added lines*/
+bool wake_early_than(const struct list_elem *a, const struct list_elem *b, void *aux);
+void thread_sleep(int64_t ticks);				
+void thread_wake_up(int64_t ticks);					
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);

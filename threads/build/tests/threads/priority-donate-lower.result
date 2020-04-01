@@ -1,8 +1,8 @@
 FAIL
 Kernel panic in run: PANIC at ../../threads/interrupt.c:361 in intr_handler(): Unexpected interrupt
-Call stack: 0x800420e17e 0x8004207979 0x8004207af8 0x65726975716361
+Call stack: 0x800420e290 0x8004207a82 0x8004207c01 0x65726975716361
 Translation of call stack:
-0x000000800420e17e: debug_panic (lib/kernel/debug.c:32)
-0x0000008004207979: intr_handler (threads/interrupt.c:365)
-0x0000008004207af8: intr_entry (threads/intr-stubs.o:?)
+0x000000800420e290: debug_panic (lib/kernel/debug.c:32)
+0x0000008004207a82: intr_handler (threads/interrupt.c:365)
+0x0000008004207c01: intr_entry (threads/intr-stubs.o:?)
 0x0065726975716361: (unknown)

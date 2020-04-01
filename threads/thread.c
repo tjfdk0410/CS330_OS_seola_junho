@@ -28,6 +28,8 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+static struct list sleep_list;		/* added line */
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -108,6 +110,7 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
+	list_init (&sleep_list);								/*added line*/
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -243,6 +246,39 @@ thread_unblock (struct thread *t) {
 	list_push_back (&ready_list, &t->elem);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
+}
+
+/*added lines(function)*/
+bool
+wake_early_than(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+	int64_t a_ticks = list_entry(a, struct thread, elem)->sleep_ticks;
+	int64_t b_ticks = list_entry(b, struct thread, elem)->sleep_ticks;
+	return a_ticks<b_ticks;
+}
+
+/*added lines(function)*/
+void
+thread_sleep(int64_t ticks) {
+	struct thread *t = running_thread();
+	enum intr_level old_level = intr_disable();
+	t->sleep_ticks = ticks;
+	list_insert_ordered(&sleep_list, &t->elem, wake_early_than, NULL);
+	thread_block();
+	intr_set_level(old_level);
+}
+
+/*add lines(function)*/
+void
+thread_wake_up(int64_t start) {
+	struct thread *t;
+	while(list_size(&sleep_list)){
+		t=list_entry(list_front(&sleep_list), struct thread, elem);
+		if (start>=t->sleep_ticks){
+			list_pop_front(&sleep_list);
+			thread_unblock(t);
+		}
+		else break;
+	}
 }
 
 /* Returns the name of the running thread. */
