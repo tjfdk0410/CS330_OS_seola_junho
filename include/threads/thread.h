@@ -5,6 +5,10 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#ifdef VM
+#include "vm/vm.h"
+#endif
+
 
 int load_avg;
 
@@ -97,6 +101,10 @@ struct thread {
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+#endif
+#ifdef VM
+	/* Table for whole virtual memory owned by thread. */
+	struct frame_table frame_table;
 #endif
 
 	int64_t sleep_ticks;    			/*added line*/
