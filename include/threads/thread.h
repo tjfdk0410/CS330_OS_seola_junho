@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include "threads/interrupt.h"
 
+int load_avg;
+
 /* States in a thread's life cycle. */
 enum thread_status {
 	THREAD_RUNNING,     /* Running thread. */
@@ -90,13 +92,22 @@ struct thread {
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
-
+	struct list_elem a_elem; /*added line*/
+	
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
 #endif
 
 	int64_t sleep_ticks;    			/*added line*/
+	int donated_count;					/*added line*/
+	int real_priority;					/*added line*/
+	struct lock* wait_lock;				/*added line*/
+	struct list holding_locks;			/*added line*/
+	int nice;							/*added line*/
+	int recent_cpu;						/*added line*/
+
+
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
@@ -116,6 +127,9 @@ void thread_print_stats (void);
 typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
+//added line
+bool compare_priority(const struct list_elem *a, const struct list_elem *b, void *aux);
+bool compare_lock(const struct list_elem *a, const struct list_elem *b, void *aux);
 void thread_block (void);
 void thread_unblock (struct thread *);
 
@@ -129,7 +143,9 @@ tid_t thread_tid (void);
 const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
+bool compare_priority_cur_head(void);			//added line
 void thread_yield (void);
+// void priority_donation(struct lock* lock);		//added line
 
 int thread_get_priority (void);
 void thread_set_priority (int);
@@ -138,6 +154,13 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void mlfqs_priority(struct thread *t);
+void mlfqs_recent_cpu (struct thread *t);
+void mlfqs_load_avg (void);
+void mlfqs_increment (void);
+void mlfqs_recalc_priority (void);
+void mlfqs_recalc_recent_cpu (void);
 
 void do_iret (struct intr_frame *tf);
 

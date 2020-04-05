@@ -42,7 +42,9 @@ test_priority_donate_sema (void)
   thread_create ("low", PRI_DEFAULT + 1, l_thread_func, &ls);
   thread_create ("med", PRI_DEFAULT + 3, m_thread_func, &ls);
   thread_create ("high", PRI_DEFAULT + 5, h_thread_func, &ls);
+  // msg ("main current priority: %d", thread_get_priority());
   sema_up (&ls.sema);
+  // msg ("main current priority: %d", thread_get_priority());
   msg ("Main thread finished.");
 }
 
@@ -53,6 +55,7 @@ l_thread_func (void *ls_)
 
   lock_acquire (&ls->lock);
   msg ("Thread L acquired lock.");
+  // msg ("L current priority: %d", thread_get_priority());
   sema_down (&ls->sema);
   msg ("Thread L downed semaphore.");
   lock_release (&ls->lock);
@@ -63,18 +66,21 @@ static void
 m_thread_func (void *ls_) 
 {
   struct lock_and_sema *ls = ls_;
-
+  // msg ("M current priority: %d", thread_get_priority());
   sema_down (&ls->sema);
   msg ("Thread M finished.");
+  // msg ("M current priority: %d", thread_get_priority());
 }
 
 static void
 h_thread_func (void *ls_) 
 {
   struct lock_and_sema *ls = ls_;
-
+  // msg ("H current priority: %d", thread_get_priority());
   lock_acquire (&ls->lock);
   msg ("Thread H acquired lock.");
+  // msg ("H current priority: %d", thread_get_priority());
+
 
   sema_up (&ls->sema);
   lock_release (&ls->lock);
