@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -87,6 +88,12 @@ typedef int tid_t;
  * only because they are mutually exclusive: only a thread in the
  * ready state is on the run queue, whereas only a thread in the
  * blocked state is on a semaphore wait list. */
+struct file_fd{
+	struct file* file;
+	struct list_elem fd_elem;
+	int fd;
+};
+
 struct thread {
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
@@ -96,7 +103,8 @@ struct thread {
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
-	struct list_elem a_elem; /*added line*/
+	struct list_elem a_elem; 			/*added line*/
+	struct list_elem child_elem;		/*added line*/
 	
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -106,6 +114,20 @@ struct thread {
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
 #endif
+	int exit_status;
+	bool terminated;
+	struct thread* parent;
+	struct list children;
+	struct file* exec_file;
+
+	struct semaphore fork_sema;
+	struct semaphore child_sema;
+	struct semaphore memory_lock_sema;
+	struct semaphore exit_sema;
+	
+	// struct semaphore *exit;
+
+	struct list fd_table;
 
 	int64_t sleep_ticks;    			/*added line*/
 	int donated_count;					/*added line*/
@@ -117,6 +139,7 @@ struct thread {
 
 
 	/* Owned by thread.c. */
+	struct intr_frame* pif;
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
 };

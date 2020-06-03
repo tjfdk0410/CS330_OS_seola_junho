@@ -7,9 +7,31 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "threads/init.h"
+#include "threads/interrupt.h"
+#include "threads/palloc.h"
+#include "threads/thread.h"
+#include "threads/mmu.h"
+#include "threads/vaddr.h"
+#include "userprog/process.h"
+#include "userprog/gdt.h"
+#include "userprog/tss.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
+#include "filesys/directory.h"
+#include "filesys/off_t.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+bool compare_fd(const struct list_elem *a, const struct list_elem *b, void *aux);
+struct file* fd_to_file(struct thread* curr, int fd);
+
+/* An open file. */
+struct file {
+	struct inode *inode;        /* File's inode. */
+	off_t pos;                  /* Current position. */
+	bool deny_write;            /* Has file_deny_write() been called? */
+};
 
 /* System call.
  *
@@ -24,8 +46,11 @@ void syscall_handler (struct intr_frame *);
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
 
+
 void
 syscall_init (void) {
+	lock_init(&lock_access_file);
+	list_init(&open_files);
 	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48  |
 			((uint64_t)SEL_KCSEG) << 32);
 	write_msr(MSR_LSTAR, (uint64_t) syscall_entry);
@@ -39,8 +64,230 @@ syscall_init (void) {
 
 /* The main system call interface */
 void
-syscall_handler (struct intr_frame *f UNUSED) {
+syscall_handler (struct intr_frame *f) {
 	// TODO: Your implementation goes here.
-	printf ("system call!\n");
-	thread_exit ();
+	/*need to modify(corner case + alpha)*/
+	struct thread* current = thread_current();
+	struct file* file;
+	struct file_fd* ffd;
+	struct list_elem* pivot;
+	struct dir* dir = dir_open_root();
+	struct inode* inode=NULL;
+	char* name = current->name;
+	int fd=2;
+	tid_t tid;
+	switch(f->R.rax){
+		case SYS_HALT://void halt (void);
+		//Halt the oprating system (terminating pintos)
+			power_off();
+			break;
+
+		case SYS_EXIT://void exit (int status);
+		// Terminating this process(current user program), return status to the kernel
+			current->exit_status=f->R.rdi;	
+			printf("%s: exit(%d)\n", current->name, current->exit_status);
+			thread_exit();
+			break;
+
+		case SYS_FORK://pid_t fork (const char *thread_name);
+			// need to modify
+			tid = process_fork(f->R.rdi, f);
+			f->R.rax=tid;
+			break;
+
+		case SYS_EXEC://int exec (const char *cmd_line);
+			// lock_acquire(&lock_access_file);
+			f->R.rax=process_exec(f->R.rdi);
+			// lock_release(&lock_access_file);
+			break;
+
+		case SYS_WAIT:
+			f->R.rax=process_wait(f->R.rdi);
+			break;
+
+		case SYS_CREATE:
+			if (is_kernel_vaddr(f->R.rdi)|| f->R.rdi==NULL){
+				f->R.rax=false;
+				current->exit_status=-1;
+				printf("%s: exit(%d)\n", current->name, current->exit_status);
+				thread_exit();
+				break;
+			}
+			lock_acquire(&lock_access_file);
+			if (dir_lookup(dir, f->R.rdi, &inode)){
+				f->R.rax=false;
+				lock_release(&lock_access_file);
+				break;
+			}
+			lock_release(&lock_access_file);
+			
+			f->R.rax=filesys_create(f->R.rdi, f->R.rsi);
+			break;
+
+		case SYS_REMOVE:
+			f->R.rax=filesys_remove(f->R.rdi);
+			break;
+
+		case SYS_OPEN:
+			if (is_kernel_vaddr(f->R.rdi)|| f->R.rdi==NULL || f->R.rdi==""){
+				f->R.rax=-1;
+				current->exit_status=-1;
+				printf("%s: exit(%d)\n", current->name, current->exit_status);
+				thread_exit();
+				break;
+			}
+			//if R.rdi is kernel region or NULL, return -1
+			lock_acquire(&lock_access_file);
+			file=filesys_open(f->R.rdi);
+			
+			
+			if (file==NULL){
+				f->R.rax=-1;
+				current->exit_status=-1;
+				lock_release(&lock_access_file);
+				break;
+			}
+
+			ffd=malloc(sizeof(struct file_fd));
+			ffd->file=file;
+			ffd->fd=-1;
+
+			if (list_empty(&current->fd_table)){
+				ffd->fd=fd;
+				// if (strcmp(thread_name(), f->R.rdi)==0){
+				// 	file_deny_write(ffd->file);
+				// }
+			}
+			else{
+				for (pivot=list_begin(&current->fd_table);pivot!=list_end(&current->fd_table);
+					pivot=list_next(pivot)){
+						if (list_entry(pivot, struct file_fd, fd_elem)->fd>fd){
+							// if (strcmp(thread_name(), f-> R.rdi)==0) file_deny_write(ffd->file);
+							ffd->fd=fd;
+							break;
+						}
+					fd++;
+				}
+				if (ffd->fd==-1) ffd->fd=fd;
+			}
+
+			list_insert_ordered(&current->fd_table, &ffd->fd_elem, compare_fd, NULL);
+			f->R.rax=ffd->fd;
+			lock_release(&lock_access_file);
+			break;
+
+		case SYS_FILESIZE:
+			file = fd_to_file(current, f->R.rdi);
+			f->R.rax = file_length(file);
+			break;
+
+		case SYS_READ:
+			if (f->R.rdi==NULL){
+				f->R.rax=-1;
+				current->exit_status=-1;
+				printf("%s: exit(%d)\n", current->name, current->exit_status);
+				thread_exit();
+				break;
+			}
+			
+			//STDIN
+			if (f->R.rdi==0) input_getc(f->R.rsi, f->R.rdx);
+			else if (f->R.rdi>1){
+				lock_acquire(&lock_access_file);
+				file = fd_to_file(current, f->R.rdi);
+				f->R.rax = file_read(file, f->R.rsi, f->R.rdx);//need to implement file descriptor -> access file
+				lock_release(&lock_access_file);
+			}	
+			
+			break;
+
+		case SYS_WRITE:	
+			if (f->R.rdi==NULL){
+				f->R.rax=-1;
+				current->exit_status=-1;
+				printf("%s: exit(%d)\n", current->name, current->exit_status);
+				thread_exit();
+				break;
+			}
+			
+			if (f->R.rdi==1) putbuf(f->R.rsi, f->R.rdx);
+			else if (f->R.rdi>1){
+				lock_acquire(&lock_access_file);
+				file = fd_to_file(current, f->R.rdi);
+				// if (file -> deny_write){ 
+				// 	file_deny_write(file);
+				// 	// f->R.rax=0;
+				// 	// lock_release(&lock_access_file);
+				// 	// break;
+				// 	}
+				f->R.rax=file_write(file, f->R.rsi, f->R.rdx);
+				lock_release(&lock_access_file);
+			}
+			break;
+
+		case SYS_SEEK:
+			// lock_acquire(&lock_access_file);
+			file = fd_to_file(current, f->R.rdi);
+			file_seek(file, f->R.rsi);
+			// lock_release(&lock_access_file);
+			break;
+
+		case SYS_TELL:
+			// lock_acquire(&lock_access_file);
+			file = fd_to_file(current, f->R.rdi);
+			f->R.rax=file_tell(file);
+			// lock_release(&lock_access_file);
+			break;
+
+		case SYS_CLOSE:
+			lock_acquire(&lock_access_file);
+			file = fd_to_file(current, f->R.rdi);
+			//null => exit -1 add!!!!!
+			if (!file==NULL){
+				// if(file->deny_write) file_deny_write(file);
+				file_close(file); //allow_write
+
+				for (pivot=list_begin(&current->fd_table);pivot!=list_end(&current->fd_table);
+					pivot=list_next(pivot)){
+					ffd=list_entry(pivot, struct file_fd, fd_elem);
+					if (ffd->fd==fd){
+						break;
+					}
+				}
+
+				list_remove(&ffd->fd_elem);
+				free(ffd);
+			}
+
+			lock_release(&lock_access_file);
+			break;
+
+		default: 
+			printf ("system call!\n");
+			thread_exit ();
+			break;
+	}
+}
+
+bool 
+compare_fd(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
+	int a_fd = list_entry(a, struct file_fd, fd_elem) -> fd;
+	int b_fd = list_entry(b, struct file_fd, fd_elem) -> fd;
+	return a_fd<b_fd;
+}
+
+struct file* fd_to_file(struct thread* curr, int fd){
+	struct file_fd* ffd;
+	struct file* file=NULL;
+	struct list_elem* pivot;
+	for (pivot=list_begin(&curr->fd_table);pivot!=list_end(&curr->fd_table);
+		pivot=list_next(pivot)){
+		ffd=list_entry(pivot, struct file_fd, fd_elem);
+		if (ffd->fd==fd){
+			file=ffd->file;
+			break;
+		}
+	}
+	return file;
+
 }

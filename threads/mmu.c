@@ -212,7 +212,7 @@ pml4_activate (uint64_t *pml4) {
  * UADDR is unmapped. */
 void *
 pml4_get_page (uint64_t *pml4, const void *uaddr) {
-	ASSERT (is_user_vaddr (uaddr));
+	ASSERT (is_user_vaddr (uaddr)); //user's virtual address
 
 	uint64_t *pte = pml4e_walk (pml4, (uint64_t) uaddr, 0);
 

@@ -10,6 +10,7 @@
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "debug.h"
 // #include "threads/fixed_point.h"
 #include "intrinsic.h"
 #ifdef USERPROG
@@ -25,12 +26,14 @@
    Do not modify this value. */
 #define THREAD_BASIC 0xd42df210
 
+
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
 
 static struct list sleep_list;		/* added line */
 static struct list all_list;		/* added line */
+static struct list open_file_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -149,7 +152,9 @@ thread_init (void) {
 	list_init (&sleep_list);								/*added line*/
 	list_init (&destruction_req);
 	list_init (&all_list);
+	list_init (&open_file_list);
 
+	
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
 	init_thread (initial_thread, "main", PRI_DEFAULT);
@@ -376,7 +381,6 @@ thread_exit (void) {
 #ifdef USERPROG
 	process_exit ();
 #endif
-
 	/* Just set our status to dying and schedule another process.
 	   We will be destroyed during the call to schedule_tail(). */
 	intr_disable ();
@@ -671,9 +675,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+	t->exit_status = 0;
 
 	list_push_back(&all_list, &t->a_elem);
-
+	t->terminated = false;
 	t->real_priority = priority;
 	t->donated_count=0;
 	if (thread_mlfqs)
@@ -682,7 +687,18 @@ init_thread (struct thread *t, const char *name, int priority) {
 		t -> recent_cpu = running_thread() -> recent_cpu; 	//Add lines
 		t -> priority = fp_sub_fp(fp_sub_fp(int_to_fp(PRI_MAX), fp_div_int(t -> recent_cpu, 4)), fp_mult_int(t->nice, 2));
 	}
+	sema_init(&(t->child_sema), 0);
+	sema_init(&(t->memory_lock_sema), 0);
+	sema_init(&(t->fork_sema), 0);
+	sema_init(&(t->exit_sema), 0);
+
 	list_init (&(t->holding_locks));
+	list_init (&t->children);
+	list_init (&t->fd_table);
+
+	list_push_back(&running_thread()->children, &(t->child_elem));
+
+	t->exec_file=NULL;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
